@@ -1,31 +1,16 @@
-from collections.abc import Iterator
-
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from vault_api.core.config import DEFAULT_PORT, Settings, get_settings
-from vault_api.db.session import get_engine, get_session_factory
+from vault_api.core.config import DEFAULT_PORT, Settings
+from vault_api.db.session import get_engine
 from vault_api.main import create_app
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
-
-@pytest.fixture(autouse=True)
-def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setenv("VAULT_DATABASE_URL", TEST_DATABASE_URL)
-    caches = (get_settings, get_engine, get_session_factory)
-    for cached in caches:
-        cached.cache_clear()
-    yield
-    for cached in caches:
-        cached.cache_clear()
-
-
-def test_settings_read_database_url_from_environment() -> None:
+def test_settings_read_database_url_from_environment(database_url: str) -> None:
     settings = Settings(_env_file=None)
 
-    assert settings.database_url == TEST_DATABASE_URL
+    assert settings.database_url == database_url
 
 
 def test_settings_require_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
