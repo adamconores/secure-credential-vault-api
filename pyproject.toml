@@ -9,8 +9,10 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
+    "alembic>=1.20.0",
     "fastapi>=0.143.3",
     "pydantic-settings>=2.16.0",
+    "pydantic[email]>=2.14.1",
     "sqlalchemy[asyncio]>=2.1.5",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -40,13 +42,31 @@ line-length = 100
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "N", "S", "RUF", "PTH"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S105", "S106"]  # assert and dummy credentials in fixtures
 
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src", "tests"]
+files = ["src", "tests", "migrations"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+
+[tool.alembic]
+script_location = "%(here)s/migrations"
+file_template = "%%(year)d_%%(month).2d_%%(day).2d_%%(hour).2d%%(minute).2d-%%(rev)s_%%(slug)s"
+prepend_sys_path = ["."]
+
+[[tool.alembic.post_write_hooks]]
+name = "ruff_format"
+type = "module"
+module = "ruff"
+options = "format REVISION_SCRIPT_FILENAME"
+
+[[tool.alembic.post_write_hooks]]
+name = "ruff_fix"
+type = "module"
+module = "ruff"
+options = "check --fix REVISION_SCRIPT_FILENAME"
