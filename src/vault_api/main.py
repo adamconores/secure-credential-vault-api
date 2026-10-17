@@ -6,13 +6,16 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
+from vault_api.api.v1 import api_router
 from vault_api.core.config import get_settings
 from vault_api.db.session import get_engine
+from vault_api.services.auth import warm_up_password_hashing
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Release pooled database connections when the application shuts down."""
+    """Warm up password hashing on startup; release database connections on shutdown."""
+    await warm_up_password_hashing()
     yield
     await get_engine().dispose()
 
@@ -20,7 +23,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     """Build the application from the current settings."""
     settings = get_settings()
-    return FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+    app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+    app.include_router(api_router)
+    return app
 
 
 def run() -> None:
