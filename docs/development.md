@@ -14,6 +14,9 @@ How the code is organized and the mistakes that are easy to make. Design decisio
 | Build | `uv build` |
 | Migrate | `uv run alembic upgrade head` |
 | Run | `uv run vault-api` |
+| Docker stack | `scripts/generate-compose-secrets.sh`, then `docker compose up --build` |
+
+Tests use in-memory SQLite; set `VAULT_TEST_DATABASE_URL` (for example `postgresql+asyncpg://user:password@localhost:5432/vault_test`) to run them against PostgreSQL, as CI does. Every test drops and recreates the tables.
 
 New migration: `uv run alembic revision --autogenerate -m "<change>"`, then review it. Autogenerate renders server defaults in the dialect of the database it compared against, so replace SQLite-only text such as `sa.text("1")` with portable `sa.true()` / `sa.func.now()`.
 
@@ -28,7 +31,8 @@ Layered package in `src/vault_api/`:
 - `migrations/`: Alembic (async, config in `pyproject.toml` under `[tool.alembic]`); `env.py` takes the URL from `Settings` and runs in batch mode for SQLite.
 - `services/`: business logic independent of HTTP (`auth.py`: registration, authentication; `vault.py`: owner-scoped item CRUD and the only place item fields are encrypted and decrypted). Argon2 runs in worker threads behind a dedicated `anyio.CapacityLimiter` (`MAX_CONCURRENT_HASHES`); never call the hashing functions directly from async code.
 - `api/`: `paths.py` (URL prefixes), `dependencies.py` (`SessionDep`, `SettingsDep`, `CipherDep`, `CurrentUserDep`), `rate_limits.py` (limit values and the login/register dependencies; the limiter lives on `app.state`), `middleware.py` (`RequestBodyLimitMiddleware`, 256 KiB; `NoStoreMiddleware`, `Cache-Control: no-store` on every response), `v1/` routers mounted under `/api/v1`: `auth.py` (`/auth/register`, `/auth/login`, `/auth/me`) and `vault.py` (`/vault/items` CRUD). `main.py` replaces FastAPI's 422 body with one that drops the submitted `input`.
-- `main.py`: `create_app()` factory, served by Uvicorn with `factory=True`.
+- `api/health.py`: `GET /health` (database ping) for Compose and load balancers.
+- `main.py`: `create_app()` factory, served by Uvicorn with `factory=True`. `/docs`, `/redoc` and `/openapi.json` exist only when docs are enabled in the settings.
 
 Read `decisions.md` before changing the architecture, and add an entry for every new decision.
 
@@ -47,7 +51,7 @@ Read `decisions.md` before changing the architecture, and add an entry for every
 - Never return FastAPI's default 422 body: it echoes submitted values, secrets included. `handle_validation_error` in `main.py` keeps only `loc`, `msg` and `type`.
 - Timestamps are set in Python (`utc_now`, microseconds) on ORM writes; SQLite's `CURRENT_TIMESTAMP` has one-second resolution and would make "newest first" ambiguous. The server defaults only cover non-ORM writes.
 - `StoredItemUnreadableError` (wrong or missing Fernet key) becomes a generic 500 via the handler in `main.py`; the log line carries only the item id. One unreadable item makes the whole list answer 500, on purpose (see `docs/decisions.md`).
-- Model and migration tests match SQLite error text (`FOREIGN KEY`, `email_lowercase`); adjust them when tests move to PostgreSQL.
+- Tests that inspect database error text must match both SQLite and PostgreSQL wording (for example `(?i)foreign key`; constraint names such as `email_lowercase` appear in both). Migration tests stay on a temporary SQLite file; CI checks the migrations on PostgreSQL separately.
 - `Settings` uses `hide_input_in_errors=True`; keep it, or a malformed key is printed in the startup error.
 - Authentication failures never reveal their reason: login always answers 401 "Incorrect email or password"; token checks always answer 401 "Could not validate credentials" (`credentials_error()`); a missing header gets FastAPI's 401 "Not authenticated". `InvalidAccessTokenError` always carries the constant `INVALID_TOKEN_MESSAGE`; the PyJWT cause is only in `__cause__`. Do not add messages that distinguish unknown email, wrong password or inactive account.
 - API tests use `httpx2.AsyncClient` with `ASGITransport` (the `client` fixture), so the app and the in-memory database share one event loop. `TestClient` runs the app in another thread and breaks that.

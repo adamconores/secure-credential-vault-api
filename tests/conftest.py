@@ -1,3 +1,4 @@
+import os
 import secrets
 from collections.abc import AsyncIterator, Iterator
 
@@ -14,6 +15,7 @@ from vault_api.db.session import get_engine, get_session_factory
 from vault_api.main import create_app
 
 IN_MEMORY_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+TEST_DATABASE_URL_VARIABLE = "VAULT_TEST_DATABASE_URL"
 JWT_SECRET_BYTES = 48
 TEST_BASE_URL = "http://testserver"
 
@@ -38,7 +40,8 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def database_url() -> str:
-    return IN_MEMORY_DATABASE_URL
+    """In-memory SQLite, or the server named by VAULT_TEST_DATABASE_URL (CI runs PostgreSQL)."""
+    return os.environ.get(TEST_DATABASE_URL_VARIABLE, IN_MEMORY_DATABASE_URL)
 
 
 @pytest.fixture(autouse=True)
@@ -69,6 +72,8 @@ def anyio_backend() -> str:
 async def db_session() -> AsyncIterator[AsyncSession]:
     engine = get_engine()
     async with engine.begin() as connection:
+        # A server database outlives the test, so every test starts from empty tables.
+        await connection.run_sync(Base.metadata.drop_all)
         await connection.run_sync(Base.metadata.create_all)
     try:
         async with get_session_factory()() as session:

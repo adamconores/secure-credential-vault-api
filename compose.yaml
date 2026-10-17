@@ -1,0 +1,49 @@
+# Local stack: PostgreSQL and the API.
+# First run:  scripts/generate-compose-secrets.sh
+# Then:       docker compose up --build      (API on http://127.0.0.1:8000/docs)
+services:
+  db:
+    image: postgres:18-alpine
+    env_file: compose-secrets/db
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      # Probe over TCP: during first start the image runs a temporary socket-only
+      # server, which a socket probe would already report as ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    env_file: compose-secrets/api
+    environment:
+      VAULT_ENABLE_DOCS: "true"
+    # Apply pending migrations, then replace the shell with the server.
+    command: ["sh", "-c", "alembic upgrade head && exec vault-api"]
+    restart: on-failure:3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  db-data:

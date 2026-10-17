@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from vault_api.api.health import router as health_router
 from vault_api.api.middleware import NoStoreMiddleware, RequestBodyLimitMiddleware
 from vault_api.api.v1 import api_router
 from vault_api.core.config import get_settings
@@ -18,6 +19,10 @@ from vault_api.services.auth import warm_up_password_hashing
 from vault_api.services.vault import StoredItemUnreadableError
 
 logger = logging.getLogger(__name__)
+
+DOCS_URL = "/docs"
+REDOC_URL = "/redoc"
+OPENAPI_URL = "/openapi.json"
 
 
 @asynccontextmanager
@@ -55,12 +60,21 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     controllable clock).
     """
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+    docs_enabled = settings.enable_docs
+    app = FastAPI(
+        title=settings.app_name,
+        debug=settings.debug,
+        lifespan=lifespan,
+        docs_url=DOCS_URL if docs_enabled else None,
+        redoc_url=REDOC_URL if docs_enabled else None,
+        openapi_url=OPENAPI_URL if docs_enabled else None,
+    )
     app.state.rate_limiter = rate_limiter or SlidingWindowRateLimiter()
     app.add_middleware(RequestBodyLimitMiddleware)
     app.add_middleware(NoStoreMiddleware)
     app.add_exception_handler(StoredItemUnreadableError, handle_unreadable_item)
     app.add_exception_handler(RequestValidationError, handle_validation_error)
+    app.include_router(health_router)
     app.include_router(api_router)
     return app
 

@@ -117,3 +117,17 @@ One entry per decision, newest last. An entry is never edited after the fact: a 
   - Worst-case memory with every store full is about 64 MiB (measured with `tracemalloc`).
   - **Lockout is not time-bounded.** Anyone who knows a victim's email can keep that account locked by sending about one failed attempt every 3 minutes; the owner is refused even with the right password while it lasts. This is the accepted price of stopping per-account guessing for now. A later mitigation is to exempt clients that recently logged in successfully to that account.
   - Evicting a blocked email counter requires churning 50,000 other emails' counters without touching the victim's in between; attackers with many networks still get 10 attempts per minute per client.
+
+## 2026-10-17: Docker Compose stack with PostgreSQL and generated secrets
+
+- **Context:** Running the project needed uv, two hand-generated keys and a migration step, and everything had only been tested on SQLite.
+- **Decision:** A multi-stage `Dockerfile` (uv builds the venv; the runtime image has no uv or sources and runs as a non-root user) and `compose.yaml` with PostgreSQL 18. `scripts/generate-compose-secrets.sh` writes random credentials into the git-ignored `compose-secrets/` directory (mode 700, files 600, never overwritten), one file per service, so the database container never receives the Fernet or JWT keys. The API container applies migrations on start, restarts at most three times on failure, runs with a read-only filesystem, no Linux capabilities and `no-new-privileges`, publishes only on `127.0.0.1`, and reports readiness through `GET /health`. The database healthcheck probes over TCP, because the image's first-start initialization runs a temporary socket-only server.
+- **Alternatives:** Database settings in `.env` would break local runs, because `Settings` rejects unknown keys in `.env`. Fixed passwords in `compose.yaml` would be committed secrets, however harmless locally. One shared secrets file would hand the encryption key to the database container.
+- **Consequences:** A reviewer needs two commands. Migrating on start suits a single instance; several replicas would need a separate migration step. Behind Docker's port publishing, clients may all appear with the bridge gateway's address, so the per-client rate limit can be shared on this local stack.
+
+## 2026-10-17: PostgreSQL in CI and interactive docs off by default
+
+- **Context:** PostgreSQL support had only been checked from the SQL Alembic prints, and `/docs` exposed the full API surface in every environment.
+- **Decision:** CI runs the whole test suite against a PostgreSQL service (`VAULT_TEST_DATABASE_URL`), applies, checks and rolls back the migrations there, and starts the Compose stack to exercise register, login and item calls over HTTP. `/docs`, `/redoc` and `/openapi.json` are served only with `VAULT_ENABLE_DOCS=true`, which the Compose stack and `.env.example` set for development.
+- **Alternatives:** Testing only on SQLite misses dialect differences (timestamps, booleans, constraint messages). Leaving the docs on by default is convenient but publishes the schema wherever the app runs.
+- **Consequences:** CI takes longer. Tests assert on dialect-neutral behaviour. Local `/docs` disappears for anyone whose `.env` lacks `VAULT_ENABLE_DOCS=true`.
