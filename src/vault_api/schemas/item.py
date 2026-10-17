@@ -32,15 +32,15 @@ ItemNotes = Annotated[str, StringConstraints(min_length=1, max_length=NOTES_MAX_
 
 
 class ItemCreate(BaseModel):
-    """Request to store a new credential."""
+    """Request to store a new credential. Every field is kept out of `repr`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: ItemName
-    username: ItemUsername | None = None
+    name: ItemName = Field(repr=False)
+    username: ItemUsername | None = Field(default=None, repr=False)
     password: ItemSecret
-    url: ItemUrl | None = None
-    notes: ItemNotes | None = None
+    url: ItemUrl | None = Field(default=None, repr=False)
+    notes: ItemNotes | None = Field(default=None, repr=False)
 
 
 class ItemUpdate(BaseModel):
@@ -52,11 +52,11 @@ class ItemUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: ItemName | None = None
-    username: ItemUsername | None = None
+    name: ItemName | None = Field(default=None, repr=False)
+    username: ItemUsername | None = Field(default=None, repr=False)
     password: ItemSecret | None = None
-    url: ItemUrl | None = None
-    notes: ItemNotes | None = None
+    url: ItemUrl | None = Field(default=None, repr=False)
+    notes: ItemNotes | None = Field(default=None, repr=False)
 
     @field_validator("name", "password", mode="before")
     @classmethod
