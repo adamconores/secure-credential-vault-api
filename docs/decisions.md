@@ -57,3 +57,24 @@ One entry per decision, newest last. An entry is never edited after the fact: a 
 - **Decision:** Alembic with the async `pyproject` template (config in `pyproject.toml`, no `alembic.ini`), batch mode for SQLite, and a constraint naming convention on `Base.metadata`. Tests run upgrade and downgrade, run `alembic check` (with `compare_server_default`, it compares tables, columns, types, nullability, indexes, foreign keys and server defaults), and exercise the CHECK constraint and the cascade on the migrated schema, because `alembic check` does not compare CHECK constraints.
 - **Alternatives:** `Base.metadata.create_all` cannot evolve an existing database.
 - **Consequences:** Every model change needs a reviewed migration. Autogenerate renders defaults for the comparing dialect, so portable expressions are fixed by hand (see `CLAUDE.md`).
+
+## 2026-10-17: Short-lived HS256 access tokens, no refresh tokens or revocation yet
+
+- **Context:** The API needs stateless authentication for a single service that both issues and verifies tokens.
+- **Decision:** JWTs signed with HS256 (PyJWT), the algorithm fixed in code. Tokens carry `sub` (user id), `iat`, `exp`, `iss` and `aud`, all required on decode. Lifetime defaults to 15 minutes (`VAULT_ACCESS_TOKEN_TTL_MINUTES`, at most 24 hours). The signing key must be at least 32 characters. Every token failure gives the same 401 and message, and the internal exception carries a constant message, so neither responses nor logs reveal why a token was rejected.
+- **Alternatives:** RS256/EdDSA pays off only when other services verify tokens. Refresh tokens and a server-side revocation list add state and endpoints; deferred until a client needs long sessions.
+- **Consequences:** Logout is client-side; a stolen token stays valid until it expires, which the short lifetime bounds. Deactivating or deleting a user takes effect on the next request, because every request reloads the user. Changing the signing key logs everyone out.
+
+## 2026-10-17: OAuth2 password form for login; uniform answers for failed logins
+
+- **Context:** Login must work with standard clients and must not reveal which emails are registered.
+- **Decision:** `POST /api/v1/auth/login` takes the OAuth2 password form (`username` = email), so FastAPI's `/docs` **Authorize** button works. Unknown email, wrong password and inactive account give the same 401; an unknown email still runs one Argon2 verification against a dummy hash, so all three take about the same time. Credentials no account can have (password over the registration maximum, email over 254 characters or containing NUL) are refused before any query or hashing. Hashing runs in worker threads behind a dedicated limiter of 4 concurrent hashes: each Argon2 hash (pwdlib defaults `m=65536,t=3,p=4`) takes 64 MiB, so an unbounded flood of logins could exhaust memory. Excess requests queue. The dummy hash is computed at startup so the first unknown-email login is not slower. Outdated hashes are upgraded on successful login.
+- **Alternatives:** A JSON login body is simpler for custom clients but breaks the `/docs` flow.
+- **Consequences:** Registration still reveals whether an email is taken (409); that is inherent to self-service sign-up. Login has no rate limiting yet: the limiter bounds memory, but a flood still delays legitimate logins. Per-IP and per-account throttling is required before a public deployment.
+
+## 2026-10-17: Field encryption keys as a MultiFernet list
+
+- **Context:** The server-wide Fernet key (see the earlier entry) must be rotatable without downtime.
+- **Decision:** `VAULT_FERNET_KEYS` is a comma-separated list. The first key encrypts; every key decrypts. Each key is validated at startup, and `Settings` hides input values in validation errors so a malformed key is never printed. Rotation: put a new key first, keep the old ones, re-encrypt existing items (a future maintenance command using `MultiFernet.rotate`), then drop the old key.
+- **Alternatives:** A single key cannot be rotated without decrypting and re-encrypting everything at once.
+- **Consequences:** Old keys stay in the configuration until every item is re-encrypted. Losing all keys loses all stored credentials.
