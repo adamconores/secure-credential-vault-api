@@ -39,7 +39,9 @@ Vault endpoints need `Authorization: Bearer <token>`, and answer 404 for items t
 
 ## Before production
 
-Not yet implemented, and needed before a public deployment: rate limiting on login and registration, refresh tokens and token revocation, a PostgreSQL deployment with CI running against it, a command that re-encrypts items after a Fernet key rotation, TLS termination, and hiding `/docs` outside development.
+Login is limited to 10 attempts per minute per client and 5 attempts per 15 minutes per email (a successful login clears the email's count); registration to 5 per hour per client. A client is an IPv4 address or an IPv6 /64 network. Exceeding a limit gets 429 with `Retry-After`. The counters are kept in memory per process: behind a reverse proxy, start Uvicorn with `--forwarded-allow-ips` set to the proxy's address so the real client IP is used, and run a single worker (or move the counters to a shared store).
+
+Not yet implemented, and needed before a public deployment: refresh tokens and token revocation, a PostgreSQL deployment with CI running against it, a command that re-encrypts items after a Fernet key rotation, TLS termination, and hiding `/docs` outside development.
 
 ## Tests and checks
 

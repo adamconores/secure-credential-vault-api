@@ -18,6 +18,24 @@ JWT_SECRET_BYTES = 48
 TEST_BASE_URL = "http://testserver"
 
 
+class FakeClock:
+    """Monotonic clock that only moves when told to."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
+
+
 @pytest.fixture
 def database_url() -> str:
     return IN_MEMORY_DATABASE_URL

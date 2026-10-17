@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from vault_api.api.middleware import NoStoreMiddleware, RequestBodyLimitMiddleware
 from vault_api.api.v1 import api_router
 from vault_api.core.config import get_settings
+from vault_api.core.rate_limit import RateLimiter, SlidingWindowRateLimiter
 from vault_api.db.session import get_engine
 from vault_api.services.auth import warm_up_password_hashing
 from vault_api.services.vault import StoredItemUnreadableError
@@ -47,10 +48,15 @@ async def handle_validation_error(_request: Request, error: Exception) -> JSONRe
     return JSONResponse({"detail": detail}, status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
 
 
-def create_app() -> FastAPI:
-    """Build the application from the current settings."""
+def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
+    """Build the application from the current settings.
+
+    Each app gets its own rate limiter unless one is passed in (tests pass one with a
+    controllable clock).
+    """
     settings = get_settings()
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+    app.state.rate_limiter = rate_limiter or SlidingWindowRateLimiter()
     app.add_middleware(RequestBodyLimitMiddleware)
     app.add_middleware(NoStoreMiddleware)
     app.add_exception_handler(StoredItemUnreadableError, handle_unreadable_item)
