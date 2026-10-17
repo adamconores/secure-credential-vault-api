@@ -43,6 +43,10 @@ Login is limited to 10 attempts per minute per client and 5 attempts per 15 minu
 
 Not yet implemented, and needed before a public deployment: refresh tokens and token revocation, a PostgreSQL deployment with CI running against it, a command that re-encrypts items after a Fernet key rotation, TLS termination, and hiding `/docs` outside development.
 
+## Development
+
+Architecture, commands and common pitfalls: `docs/development.md`. Design decisions and their trade-offs: `docs/decisions.md`.
+
 ## Tests and checks
 
 ```sh
