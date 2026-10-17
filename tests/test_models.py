@@ -61,7 +61,7 @@ async def test_uppercase_email_is_rejected(db_session: AsyncSession) -> None:
 async def test_item_without_existing_owner_is_rejected(db_session: AsyncSession) -> None:
     db_session.add(make_item(uuid.uuid4()))
 
-    with pytest.raises(IntegrityError, match="FOREIGN KEY"):
+    with pytest.raises(IntegrityError, match=r"(?i)foreign key"):
         await db_session.commit()
 
 

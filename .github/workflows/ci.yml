@@ -26,6 +26,69 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run pytest
+      - run: shellcheck scripts/*.sh
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: vault
+          POSTGRES_PASSWORD: ci-only-throwaway # service exists only inside this job
+          POSTGRES_DB: vault_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U vault -d vault_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      VAULT_TEST_DATABASE_URL: postgresql+asyncpg://vault:ci-only-throwaway@localhost:5432/vault_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --locked
+      - name: Migrations apply, match the models and roll back on PostgreSQL
+        run: |
+          VAULT_JWT_SECRET_KEY="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          VAULT_FERNET_KEYS="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          export VAULT_JWT_SECRET_KEY VAULT_FERNET_KEYS VAULT_DATABASE_URL="$VAULT_TEST_DATABASE_URL"
+          uv run alembic upgrade head
+          uv run alembic check
+          uv run alembic downgrade base
+      - name: Test suite on PostgreSQL
+        run: uv run pytest
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: scripts/generate-compose-secrets.sh
+      - run: docker compose up --build --detach --wait
+      - name: Smoke test through the published port
+        run: |
+          base=http://127.0.0.1:8000
+          curl --fail --silent "$base/health"
+          curl --fail --silent --output /dev/null "$base/docs"
+          curl --fail --silent --output /dev/null -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"correct horse battery"}' "$base/api/v1/auth/register"
+          token="$(curl --fail --silent -d 'username=ci@example.com&password=correct horse battery' \
+            "$base/api/v1/auth/login" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+          curl --fail --silent --output /dev/null -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' -d '{"name":"CI","password":"s3cret"}' "$base/api/v1/vault/items"
+          count="$(curl --fail --silent -H "Authorization: Bearer $token" "$base/api/v1/vault/items" \
+            | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+          test "$count" = 1
+      - name: Container logs
+        if: failure()
+        run: docker compose logs
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
 
   audit:
     runs-on: ubuntu-latest

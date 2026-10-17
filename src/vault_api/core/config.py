@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     app_name: str = "Secure Credential Vault API"
     debug: bool = False
+    # Interactive docs and the OpenAPI schema expose the full API surface; opt in per environment.
+    enable_docs: bool = False
     sql_echo: bool = False
     database_url: str
     host: str = DEFAULT_HOST
