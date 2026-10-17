@@ -78,3 +78,31 @@ One entry per decision, newest last. An entry is never edited after the fact: a 
 - **Decision:** `VAULT_FERNET_KEYS` is a comma-separated list. The first key encrypts; every key decrypts. Each key is validated at startup, and `Settings` hides input values in validation errors so a malformed key is never printed. Rotation: put a new key first, keep the old ones, re-encrypt existing items (a future maintenance command using `MultiFernet.rotate`), then drop the old key.
 - **Alternatives:** A single key cannot be rotated without decrypting and re-encrypting everything at once.
 - **Consequences:** Old keys stay in the configuration until every item is re-encrypted. Losing all keys loses all stored credentials.
+
+## 2026-10-17: Owner-scoped vault queries that answer 404 for other users' items
+
+- **Context:** Item ids appear in URLs; a user must never read, change or delete another user's items, nor learn that an id exists.
+- **Decision:** Every vault query filters on both the item id and `owner_id`. Missing and foreign items give the same 404 body.
+- **Alternatives:** 403 for foreign items is more precise, but it confirms that the id exists.
+- **Consequences:** Ownership checks live in one place (`services/vault.get_item`). Clients cannot distinguish "deleted" from "never yours".
+
+## 2026-10-17: Offset paging ordered by creation time
+
+- **Context:** Item names are encrypted, so the database cannot sort or filter by them.
+- **Decision:** `GET /vault/items` pages with `limit` (1–200, default 50) and `offset`, newest first by `created_at`, with the id as a tie-breaker.
+- **Alternatives:** Sorting or searching by name means decrypting every item in the application; cheap at personal-vault scale, but deferred until a client needs it. Cursor paging is unnecessary at this size.
+- **Consequences:** Clients sort and search by name themselves. Offsets shift if items are created while paging. Timestamps are set in Python with microseconds on ORM writes, because SQLite's `CURRENT_TIMESTAMP` has one-second resolution and items created in the same second would otherwise be ordered by random id.
+
+## 2026-10-17: An unreadable item fails the whole list instead of being skipped
+
+- **Context:** If an item cannot be decrypted (its key was removed too early, or the row is corrupt), `GET /vault/items` must either fail or omit it.
+- **Decision:** Fail with a generic 500 and log the item id. A vault that silently hides credentials is worse than one that refuses to answer.
+- **Alternatives:** Skipping unreadable items keeps the list usable but hides data loss from the owner.
+- **Consequences:** One unreadable row blocks that user's list until the key is restored or the row is repaired; single-item reads of other items still work. Key rotation must keep old keys until every item is re-encrypted.
+
+## 2026-10-17: 256 KiB request body limit, no-store on every response, sanitized 422 bodies
+
+- **Context:** Field limits are counted in characters; without a byte limit, a request body is unbounded. Responses contain decrypted credentials.
+- **Decision:** An ASGI middleware refuses bodies over 256 KiB with 413: a declared `Content-Length` is checked up front, and chunked bodies are counted as they arrive. The limit is sized for the largest valid item when a client escapes every character as a `\uXXXX` surrogate pair (`json.dumps` default), about 160 KB; a test sends exactly that. A second middleware sets `Cache-Control: no-store` on every response, errors included; token responses need it too (RFC 6749 section 5.1). Validation errors keep only `loc`, `msg` and `type`, because FastAPI's default 422 echoes the submitted input, secrets included.
+- **Alternatives:** 64 KiB fits the largest item only in raw UTF-8 and rejected valid items from clients that escape non-ASCII; a reverse-proxy limit alone leaves the app unprotected in development.
+- **Consequences:** A production reverse proxy should enforce a matching limit. Raising a field maximum requires re-checking the body limit; the test fails if it no longer fits.
