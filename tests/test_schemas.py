@@ -124,3 +124,13 @@ def test_item_create_rejects_blank_optional_text() -> None:
         ItemCreate(name="Mail", password="s", username="   ")
 
     assert exc_info.value.errors()[0]["loc"] == ("username",)
+
+
+def test_item_requests_keep_every_field_out_of_repr() -> None:
+    fields = {"name": "Bank", "username": "alice", "url": "bank.example", "notes": "pin"}
+    create = ItemCreate(password="item-secret", **fields)
+    update = ItemUpdate(**fields)
+
+    for model in (create, update):
+        for value in fields.values():
+            assert value not in repr(model)

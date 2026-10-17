@@ -56,15 +56,26 @@ class UUIDPrimaryKeyMixin:
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
 
-class TimestampMixin:
-    """Creation and last-update times, set by the database."""
+def utc_now() -> datetime:
+    """Current time in UTC with microseconds."""
+    return datetime.now(UTC)
 
-    # Fetch server-generated values in the INSERT/UPDATE itself (RETURNING). Without it,
-    # `updated_at` is expired after an UPDATE and reading it triggers a lazy load, which
-    # fails under asyncio.
+
+class TimestampMixin:
+    """Creation and last-update times.
+
+    ORM writes set them in Python with microsecond precision: SQLite's `CURRENT_TIMESTAMP`
+    has one-second resolution, which would make "newest first" ambiguous for items
+    created in the same second. The server defaults cover rows written without the ORM.
+    """
+
+    # Fetch any server-generated values in the INSERT/UPDATE itself (RETURNING), so an
+    # async session never needs a lazy load to read them.
     __mapper_args__: ClassVar[dict[str, Any]] = {"eager_defaults": True}
 
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(), server_default=func.now(), onupdate=func.now()
+        UTCDateTime(), default=utc_now, server_default=func.now(), onupdate=utc_now
     )

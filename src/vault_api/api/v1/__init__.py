@@ -3,7 +3,8 @@
 from fastapi import APIRouter
 
 from vault_api.api.paths import API_V1_PREFIX
-from vault_api.api.v1 import auth
+from vault_api.api.v1 import auth, vault
 
 api_router = APIRouter(prefix=API_V1_PREFIX)
 api_router.include_router(auth.router)
+api_router.include_router(vault.router)

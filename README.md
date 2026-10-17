@@ -1,6 +1,6 @@
 # Secure Credential Vault API
 
-A headless password-manager API built with FastAPI. Users authenticate with short-lived JWT bearer tokens, passwords are hashed with Argon2id, and stored credentials are encrypted at rest with Fernet before they reach the database. The project is built in phases: registration, login and token authentication are in place; the vault endpoints follow.
+A headless password-manager API built with FastAPI. Users authenticate with short-lived JWT bearer tokens, passwords are hashed with Argon2id, and stored credentials are encrypted at rest with Fernet before they reach the database. Each user sees and changes only their own items. See *Before production* for what a public deployment still needs.
 
 ## Requirements
 
@@ -29,6 +29,17 @@ The API listens on `127.0.0.1:8000` by default (`VAULT_HOST` and `VAULT_PORT` ov
 | `POST` | `/api/v1/auth/register` | Create an account (JSON: `email`, `password` of 12–128 characters) |
 | `POST` | `/api/v1/auth/login` | OAuth2 password form (`username` = email, `password`); returns a bearer token |
 | `GET` | `/api/v1/auth/me` | The account the bearer token belongs to |
+| `POST` | `/api/v1/vault/items` | Store an item (`name`, `password`; optional `username`, `url`, `notes`) |
+| `GET` | `/api/v1/vault/items` | Your items, newest first (`limit` 1–200, default 50; `offset`) |
+| `GET` | `/api/v1/vault/items/{id}` | One item |
+| `PATCH` | `/api/v1/vault/items/{id}` | Change the fields sent; `null` clears `username`, `url` or `notes` |
+| `DELETE` | `/api/v1/vault/items/{id}` | Delete an item |
+
+Vault endpoints need `Authorization: Bearer <token>`, and answer 404 for items that do not exist or belong to someone else. Every response, errors included, carries `Cache-Control: no-store`. Validation errors (422) list each field's location and reason but never echo the submitted value. Request bodies over 256 KiB get 413.
+
+## Before production
+
+Not yet implemented, and needed before a public deployment: rate limiting on login and registration, refresh tokens and token revocation, a PostgreSQL deployment with CI running against it, a command that re-encrypts items after a Fernet key rotation, TLS termination, and hiding `/docs` outside development.
 
 ## Tests and checks
 

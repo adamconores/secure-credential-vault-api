@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from vault_api.api.paths import TOKEN_URL
 from vault_api.core.config import Settings, get_settings
-from vault_api.core.security import InvalidAccessTokenError, decode_access_token
+from vault_api.core.security import (
+    FieldCipher,
+    InvalidAccessTokenError,
+    decode_access_token,
+    get_field_cipher,
+)
 from vault_api.db.session import get_session
 from vault_api.models import User
 
@@ -16,6 +21,7 @@ BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+CipherDep = Annotated[FieldCipher, Depends(get_field_cipher)]
 
 # Missing or non-Bearer Authorization headers are answered with 401 by the scheme itself.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=TOKEN_URL)
